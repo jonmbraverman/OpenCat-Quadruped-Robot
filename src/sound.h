@@ -19,7 +19,7 @@ byte melody1[] = {15, 8, 10, 12, 13, 15, 8, 8,  17, 13, 15, 17, 19, 20, 8, 8,
 void beep(float note, float duration = 50, int pause = 0, byte repeat = 1 ) {
   for (byte r = 0; r < repeat; r++) {
     if (note)
-      tone(BUZZER, BASE_PITCH * pow(1.05946, note));//tone(pin, frequency, duration) the duration doesn't work
+      noTone(BUZZER);  //, BASE_PITCH * pow(1.05946, note));//tone(pin, frequency, duration) the duration doesn't work
     else
       delay(duration);
     delay(duration);

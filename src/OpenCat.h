@@ -387,7 +387,7 @@ float protectiveShift;  //reduce the wearing of the potentiometer
 
 #else
 
-#define TASK_QUEUE  //allow executing a sequence of tasks, if you enabled the other modules, the task queue will be automatically enabled. \
+//#define TASK_QUEUE  //allow executing a sequence of tasks, if you enabled the other modules, the task queue will be automatically enabled. \
   // because it takes up memory, it should be disabled if the GYRO is enabled. See "#undef TASK_QUEUE" under ifdef GYRO
 #ifdef TASK_QUEUE
 #include "taskQueue.h"

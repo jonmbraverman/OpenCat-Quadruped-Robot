@@ -27,6 +27,8 @@ void readRGBultrasonic() {
       return;
     }
 
+    return;
+    /*
     if (distance > 90) {
       if (!manualEyeColorQ)
         ultrasonic.SetRgbEffect(E_RGB_ALL, RGB_WHITE, E_EFFECT_BREATHING);
@@ -118,6 +120,8 @@ void readRGBultrasonic() {
       randomInterval = 5000;
       tQueue->addTask('L', newCmd);
     }
+
+    */
   }
 }
 
