@@ -28,7 +28,7 @@ import os
 NyBoard_version = 'NyBoard_V1_2'
 verNumber = sys.version.split('(')[0].split()[0]
 verNumber = verNumber.split('.')
-print(verNumber)
+logger.info(f"Python version is {verNumber}")
 #verNumber = [2,1,1] #for testing
 supportHoverTip = True
 if int(verNumber[0])<3 or int(verNumber[1])<7:
@@ -45,23 +45,55 @@ try:
     from idlelib.tooltip import Hovertip
 except Exception as e:
     logger.info("Cannot import hovertip!")
-    raise e
+    supportHoverTip = False
     
+modelOptions = [
+    'Nybble',
+    'Nybble Q',
+    'Bittle',
+    'Bittle X',
+    'Bittle X+Arm',
+    'DoF16',
+    'Chero'
+]
 
 NaJoints = {
     'Nybble': [3, 4, 5, 6, 7],
     'Bittle': [1, 2, 3, 4, 5, 6, 7],
-    'Bittle X': [1, 2, 3, 4, 5, 6, 7],
-    'DoF16' : []
+#    'BittleX': [1, 2, 3, 4, 5, 6, 7],
+    'BittleX+Arm': [3, 4, 5, 6, 7],
+    'DoF16' : [],
+    'Chero' : []
 }
-scaleNames = [
+
+BittleRScaleNames = [
+    'Claw Pan', 'Claw Lift', 'Claw Open', 'N/A',
+    'Shoulder', 'Shoulder', 'Shoulder', 'Shoulder',
+    'Arm', 'Arm', 'Arm', 'Arm',
+    'Knee', 'Knee', 'Knee', 'Knee']
+
+RegularScaleNames = [
     'Head Pan', 'Head Tilt', 'Tail Pan', 'N/A',
     'Shoulder', 'Shoulder', 'Shoulder', 'Shoulder',
     'Arm', 'Arm', 'Arm', 'Arm',
     'Knee', 'Knee', 'Knee', 'Knee']
+
+scaleNames = {
+    'Nybble': RegularScaleNames,
+    'Bittle': RegularScaleNames,
+    'BittleX+Arm': BittleRScaleNames,
+    'Chero': RegularScaleNames
+}
+
 sideNames = ['Left Front', 'Right Front', 'Right Back', 'Left Back']
 
 ports = []
+
+def displayName(name):
+    if 'Bittle' in name and 'Bittle' != name:
+        s = name.replace(' ','')
+        name = 'Bittle'+' '+s[6:]
+    return name
 
 def makeDirectory(path):
     # delete spaces in the path string

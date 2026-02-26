@@ -1,4 +1,4 @@
-#define SOFTWARE_VERSION "N_240514"  //NyBoard + YYMMDD
+#define SOFTWARE_VERSION "N_250916"  //NyBoard + YYMMDD
 //board configuration
 // -- comment out these blocks to save program space for your own codes --
 #define BUZZER 5
@@ -9,12 +9,6 @@
 #define SERIAL_TIMEOUT 5
 #define SERIAL_TIMEOUT_LONG 200
 //Tutorial: https://bittle.petoi.com/11-tutorial-on-creating-new-skills
-#ifdef NYBBLE
-#include "InstinctNybble.h"
-#elif defined BITTLE
-#include "InstinctBittle.h"
-//#include "InstinctBittleShortExample.h"
-#endif
 
 #define DOF 16
 
@@ -25,7 +19,7 @@ int8_t middleShift[] = { 0, 15, 0, 0,
                          -30, -30, 30, 30 };
 int angleLimit[][2] = {
   { -120, 120 },
-  { -80, 90 },
+  { -80, 45 },
   { -120, 120 },
   { -120, 120 },
   { -90, 60 },
@@ -42,13 +36,17 @@ int angleLimit[][2] = {
   { -120, 60 },
 };
 #elif defined BITTLE
-int8_t middleShift[] = { 0, 15, 0, 0,
+int8_t middleShift[] = { 0, -90, 0, 0,
                          -45, -45, -45, -45,
                          55, 55, -55, -55,
                          -55, -55, -55, -55 };
 int angleLimit[][2] = {
   { -120, 120 },
-  { -30, 80 },
+#ifdef ROBOT_ARM
+  { -10, 180 },
+#else
+  { -85, 85 },
+#endif
   { -120, 120 },
   { -120, 120 },
   { -90, 60 },
@@ -90,7 +88,7 @@ int angleLimit[][2] = {
 #endif
 
 // #define INVERSE_SERVO_DIRECTION
-int8_t rotationDirection[] = { 1, -1, 1, 1,
+int8_t rotationDirection[] = { 1, -1, -1, 1,
                                1, -1, 1, -1,
                                1, -1, -1, 1,
                                -1, 1, 1, -1 };
@@ -161,15 +159,27 @@ byte pwm_pin[] = { 12, 11, 4, 3,
 #define WALKING_DOF 8
 #define REGULAR G41
 #define KNEE G41
+#include "InstinctNybble.h"
+
 
 #elif defined BITTLE
+#ifdef ROBOT_ARM
+#define MODEL "Bittle RN"
+#else
 #define MODEL "Bittle"
+#endif
 #define HEAD
+#define TAIL  // the robot arm's clip is assigned to the tail joint
 #define LL_LEG
 #define WALKING_DOF 8
 #define REGULAR P1S
 #define KNEE P1S
-
+#ifdef ROBOT_ARM
+#include "InstinctBittle_arm.h"
+#else
+#include "InstinctBittle.h"
+#endif
+//#include "InstinctBittleShortExample.h"
 #endif
 
 //on-board EEPROM addresses
@@ -332,7 +342,7 @@ bool fineAdjust = true;
 bool gyroBalanceQ = true;
 bool printGyro = false;
 bool walkingQ = false;
-bool serialDominateQ = false;
+// bool serialDominateQ = false;
 bool manualHeadQ = false;
 bool nonHeadJointQ = false;
 bool hardServoQ = true;
@@ -440,7 +450,6 @@ float protectiveShift;  //reduce the wearing of the potentiometer
 
 void initRobot() {
   //----------------------------------
-  beep(20);
 #ifdef MAIN_SKETCH  // **
   PTL('k');
   PTLF("\n* Start *");
@@ -528,6 +537,7 @@ void initRobot() {
 #endif
 #endif  // **
   PTLF("Ready!");
+  beep(20);
 #ifndef MAIN_SKETCH
   PCA9685CalibrationPrompt();
 #endif

@@ -8,24 +8,26 @@
 # May.1st, 2022
 
 from commonVar import *
-from subprocess import check_call
-import threading
+# from subprocess import check_call
+import subprocess
 from tkinter import ttk
 from tkinter import filedialog
 import pathlib
+# import webbrowser
 
 regularW = 14
 language = languageList['English']
 NyBoard_version_list = ['NyBoard_V1_0', 'NyBoard_V1_1', 'NyBoard_V1_2']
-BiBoard_version_list = ['BiBoard_V0_1', 'BiBoard_V0_2']
+BiBoard_version_list = ['BiBoard_V0_1', 'BiBoard_V0_2', 'BiBoard_V1_0']
 
 def txt(key):
     return language.get(key, textEN[key])
     
 class Uploader:
     def __init__(self,model,lan):
-        connectPort(goodPorts, needTesting=False, needSendTask=False)
-        closeAllSerial(goodPorts, clearPorts=False)
+        connectPort(goodPorts, needTesting=False, needSendTask=False, needOpenPort=False)
+        # closeAllSerial(goodPorts, clearPorts=False)
+        self.configName = model
         self.win = Tk()
         self.OSname = self.win.call('tk', 'windowingsystem')
         self.shellOption = True
@@ -40,19 +42,34 @@ class Uploader:
         self.win.resizable(False, False)
         self.bParaUpload = True
         self.bFacReset = False
-        self.bModPara = False
+        self.bIMUerror = False
         Grid.rowconfigure(self.win, 0, weight=1)
         Grid.columnconfigure(self.win, 0, weight=1)
         self.strProduct = StringVar()
         global language
         language = lan
-        self.BittleNyBoardModes = list(map(lambda x: txt(x),['Standard', 'RandomMind', 'Voice', 'Camera','Mind+']))
-        self.NybbleNyBoardModes = list(map(lambda x: txt(x),['Standard', 'RandomMind', 'Voice', 'Ultrasonic', 'RandomMind_Ultrasonic','Mind+']))
-        self.BittleBiBoardModes = list(map(lambda x: txt(x), ['Standard']))
-        self.NybbleBiBoardModes = list(map(lambda x: txt(x), ['Standard']))
+        # self.BittleNyBoardModes = list(map(lambda x: txt(x),['Standard', 'Mind+', 'RandomMind', 'Voice', 'Camera','Ultrasonic', 'RandomMind_Ultrasonic', 'PIR', 'Touch', 'Light', 'Gesture', 'InfraredDistance']))
+        # self.NybbleNyBoardModes = list(map(lambda x: txt(x),['Standard', 'Mind+', 'RandomMind', 'Voice', 'Camera','Ultrasonic', 'RandomMind_Ultrasonic', 'PIR', 'Touch', 'Light', 'Gesture', 'InfraredDistance']))
+        # for NyBoard, the mode is the same between Bittle and Nybble now
+        # self.BittleNyBoardModes = list(map(lambda x: txt(x),
+        #                                    ['Standard', 'Mind+', 'RandomMind', 'Voice', 'Camera', 'Ultrasonic',
+        #                                     'RandomMind_Ultrasonic', 'PIR', 'Touch', 'Light', 'Gesture',
+        #                                     'InfraredDistance','Voice_RobotArm']))
+        self.BittleNyBoardModes = list(map(lambda x: txt(x),
+                                           ['Standard', 'Mind+', 'RandomMind', 'Voice', 'Camera', 'Ultrasonic',
+                                            'RandomMind_Ultrasonic', 'PIR', 'Touch', 'Light', 'Gesture',
+                                            'InfraredDistance']))
+        self.NybbleNyBoardModes = list(map(lambda x: txt(x),
+                                     ['Standard', 'Mind+', 'RandomMind', 'Voice', 'Camera', 'Ultrasonic',
+                                      'RandomMind_Ultrasonic', 'PIR', 'Touch', 'Light', 'Gesture',
+                                      'InfraredDistance']))
+        # self.BittleBiBoardModes = list(map(lambda x: txt(x), ['Standard', 'Camera','Ultrasonic','PIR','Touch','Light','Gesture']))
+        # self.NybbleBiBoardModes = list(map(lambda x: txt(x), ['Standard']))
+        # for BiBoard, the mode is the same between Bittle and Nybble now
+        self.BiBoardModes = list(map(lambda x: txt(x), ['Standard']))
         self.inv_txt = {v: k for k, v in language.items()}
         self.initWidgets()
-        if self.strProduct.get() == 'Bittle X':
+        if self.strProduct.get() == 'Bittle X' or self.strProduct.get() == 'Bittle X+Arm' or self.strProduct.get() == 'Nybble Q':
             board_version_list = BiBoard_version_list
         else:
             board_version_list = NyBoard_version_list + BiBoard_version_list
@@ -63,11 +80,23 @@ class Uploader:
         self.win.protocol('WM_DELETE_WINDOW', self.on_closing)
         self.win.update()
 
+        # For macOS stability: Use main-thread timer instead of background thread
+        # Background threads cause Tkinter crashes on macOS when packaged
         self.keepChecking = True
-        t = threading.Thread(target=keepCheckingPort,
-                             args=(goodPorts, lambda: self.keepChecking, False, self.updatePortlist))
-        t.daemon = True
-        t.start()
+        
+        # Initialize lastPortList from actual system ports to avoid false "new port" detection
+        try:
+            from SerialCommunication import Communication
+            currentPorts = Communication.Print_Used_Com()
+            self.lastPortList = [p.split('/')[-1] for p in currentPorts]
+        except:
+            self.lastPortList = list(portStrList) if portStrList else []
+        
+        # Flag to prevent showing "new port" message on first check
+        self.isFirstCheck = True
+        
+        # Start port checking in main thread using timer
+        self.win.after(500, self.checkPortsMainThread)
 
         self.win.focus_force()    # force the main interface to get focus
         self.win.mainloop()
@@ -103,7 +132,7 @@ class Uploader:
                 # f.close()
             lines = [line.split('\n')[0] for line in lines]    # remove the '\n' at the end of each line
             self.defaultLan = lines[0]
-            model = lines[1]
+            self.configName = lines[1]
             strDefaultPath = lines[2]
             strSwVersion = lines[3]
             strBdVersion = lines[4]
@@ -111,25 +140,22 @@ class Uploader:
             if len(lines) >= 8:
                 strCreator = lines[6]
                 strLocation = lines[7]
-                self.configuration = [self.defaultLan, model, strDefaultPath, strSwVersion, strBdVersion,
+                self.configuration = [self.defaultLan, self.configName, strDefaultPath, strSwVersion, strBdVersion,
                                       mode, strCreator, strLocation]
             else:
-                self.configuration = [self.defaultLan, model, strDefaultPath, strSwVersion, strBdVersion, mode]
-
-                
+                self.configuration = [self.defaultLan, self.configName, strDefaultPath, strSwVersion, strBdVersion, mode]
         except Exception as e:
             print ('Create configuration file')
             self.defaultLan = 'English'
-            model = 'Bittle'
             strDefaultPath = releasePath[:-1]
             strSwVersion = '2.0'
             strBdVersion = NyBoard_version_list[-1]
             mode = 'Standard'
-            self.configuration = [self.defaultLan, model, strDefaultPath, strSwVersion, strBdVersion, mode]
+            self.configuration = [self.defaultLan, self.configName, strDefaultPath, strSwVersion, strBdVersion, mode]
             
         num = len(lines)
         logger.debug(f"len(lines): {num}")
-        self.lastSetting = [model,strDefaultPath,strSwVersion,strBdVersion,mode]
+        self.lastSetting = [self.configName,strDefaultPath,strSwVersion,strBdVersion,mode]
         self.currentSetting = []
         
         logger.info(f"The firmware file folder is {strDefaultPath}")
@@ -157,15 +183,19 @@ class Uploader:
         self.labProduct = ttk.Label(fmProduct, text=txt('labProduct'), font=('Arial', 16))
         self.labProduct.grid(row=0, column=0, ipadx=5, padx=5, sticky=W)
 
-        cbProduct = ttk.Combobox(fmProduct, textvariable=self.strProduct, foreground='blue', font=12)
+        self.cbProduct = ttk.Combobox(fmProduct, textvariable=self.strProduct, foreground='blue', font=12)
         # list of product
-        cbProductList = ['Nybble', 'Bittle', 'Bittle X']
+        cbProductList = ['Nybble', 'Nybble Q', 'Bittle', 'Bittle X', 'Bittle X+Arm']
         # set default value of Combobox
-        cbProduct.set(self.lastSetting[0])
+        self.cbProduct.set(displayName(self.lastSetting[0]))
         # set list for Combobox
-        cbProduct['values'] = cbProductList
-        cbProduct.grid(row=1, ipadx=5, padx=5, sticky=W)
-        cbProduct.bind("<<ComboboxSelected>>", self.chooseProduct)
+        self.cbProduct['values'] = cbProductList
+        self.cbProduct.grid(row=1, ipadx=5, padx=5, sticky=W)
+        self.cbProduct.bind("<<ComboboxSelected>>", self.chooseProduct)
+        if self.strProduct.get() == 'Bittle X+Arm':
+            tip(self.cbProduct, "Bittle X+Arm" + " (" + "Bittle + " + txt('Robotic Arm') + ")")
+        else:
+            tip(self.cbProduct, self.strProduct.get())
 
         fmSoftwareVersion = ttk.Frame(self.win)
         fmSoftwareVersion.grid(row=1, column=1, ipadx=2, padx=2, sticky=W)
@@ -197,7 +227,15 @@ class Uploader:
         # set list for Combobox
         if self.strProduct.get() == 'Bittle X':
             if self.lastSetting[3] in NyBoard_version_list:
-                self.cbBoardVersion.set(BiBoard_version_list[0])
+                self.cbBoardVersion.set(BiBoard_version_list[1])
+            board_version_list = BiBoard_version_list
+        elif self.strProduct.get() == 'Bittle X+Arm':
+            if self.lastSetting[3] in NyBoard_version_list:
+                self.cbBoardVersion.set(BiBoard_version_list[2])
+            board_version_list = BiBoard_version_list
+        elif self.strProduct.get() == 'Nybble Q':
+            if self.lastSetting[3] in NyBoard_version_list:
+                self.cbBoardVersion.set(BiBoard_version_list[2])
             board_version_list = BiBoard_version_list
         else:
             board_version_list = NyBoard_version_list + BiBoard_version_list
@@ -209,24 +247,22 @@ class Uploader:
         self.labMode = ttk.Label(fmMode, text=txt('labMode'), font=('Arial', 16))
         self.labMode.grid(row=0, column=0, ipadx=5, padx=5, sticky=W)
 
-        if self.strProduct.get() == 'Bittle':
+        if self.strProduct.get() == 'Bittle' or self.strProduct.get() == 'Nybble':
             if 'NyBoard' in self.strBoardVersion.get():
-                cbModeList = self.BittleNyBoardModes
+                if self.strProduct.get() == 'Bittle':
+                    cbModeList = self.BittleNyBoardModes
+                else:
+                    cbModeList = self.NybbleNyBoardModes
             else:
-                cbModeList = self.BittleBiBoardModes
-        elif self.strProduct.get() == 'Nybble':
-            if 'NyBoard' in self.strBoardVersion.get():
-                cbModeList = self.NybbleNyBoardModes
-            else:
-                cbModeList = self.NybbleBiBoardModes
-        elif self.strProduct.get() == 'Bittle X':
-            cbModeList = self.BittleBiBoardModes
+                cbModeList = self.BiBoardModes
+        else:    # if self.strProduct.get() == 'Bittle X' or self.strProduct.get() == 'Bittle X+Arm':
+            cbModeList = self.BiBoardModes
 
         self.cbMode = ttk.Combobox(fmMode, textvariable=self.strMode, foreground='blue', font=12)
         # set default value of Combobox
         self.cbMode.set(txt(self.lastSetting[4]))
         # set list for Combobox
-        self.cbMode['values'] = cbModeList
+        self.cbMode['values'] = cbModeList   # the mode names are already translated
         self.cbMode.grid(row=1, ipadx=5, padx=5, sticky=W)
 
         fmSerial = ttk.Frame(self.win)    # relief=GROOVE
@@ -234,21 +270,32 @@ class Uploader:
         self.labPort = ttk.Label(fmSerial, text=txt('labPort'), font=('Arial', 16))
         self.labPort.grid(row=0, ipadx=5, padx=5, sticky=W)
         self.cbPort = ttk.Combobox(fmSerial, textvariable=self.strPort, foreground='blue', font=12)    # width=38,
-        # list of serial port number
-        port_number_list = []
-        if len(portStrList) == 0:
-            port_number_list = [' ']
-            print("Cannot find the serial port!")
-        else:
-            logger.info(f"portStrList is {portStrList}")
-            for p in portStrList:
-                portName = p
-                logger.debug(f"portName is {portName}")
-                port_number_list.append(portName)
-            logger.debug(f"port_number_list is {port_number_list}")
-            self.cbPort.set(port_number_list[0])
-        # set list for Combobox
-        self.cbPort['values'] = port_number_list
+        
+        # Refresh port list from system to ensure we have all available ports
+        # This is especially important after manual port selection
+        try:
+            from SerialCommunication import Communication
+            
+            # Remember user's manually selected port (if any)
+            user_selected_port = portStrList[0] if len(portStrList) > 0 else None
+            
+            # Get all system ports
+            currentPorts = Communication.Print_Used_Com()
+            current_port_names = [p.split('/')[-1] for p in currentPorts]
+            
+            # Update global portStrList with all system ports
+            portStrList.clear()
+            portStrList.extend(current_port_names)
+            logger.info(f"Refreshed port list from system: {current_port_names}")
+            
+            # If user manually selected a port and it's still available, set it as current selection
+            if user_selected_port and user_selected_port in current_port_names:
+                self.strPort.set(user_selected_port)
+                logger.info(f"Preserved manually selected port: {user_selected_port}")
+        except Exception as e:
+            logger.error(f"Failed to refresh port list: {e}")
+        
+        self.updatePortlist()
         self.cbPort.grid(row=1, ipadx=5, padx=5, sticky=W)
 
         fmFacReset = ttk.Frame(self.win)    # relief=GROOVE
@@ -283,7 +330,6 @@ class Uploader:
     def uploadeModeOnly(self):
         self.bParaUpload = False
         self.bFacReset = False
-        self.bModPara = False
         self.autoupload()
 
     def factoryReset(self):
@@ -294,10 +340,10 @@ class Uploader:
     def upgrade(self):
         self.bParaUpload = True
         self.bFacReset = False
-        self.bModPara = True
         self.autoupload()
 
     def updatePortlist(self):
+        """Update port list in UI (called from main thread only)"""
         port_number_list = []
         if len(portStrList) == 0:
             port_number_list = [' ']
@@ -309,10 +355,170 @@ class Uploader:
                 logger.debug(f"{portName}")
                 port_number_list.append(portName)
             logger.debug(f"port_number_list is {port_number_list}")
-        self.cbPort.set(port_number_list[0])
-        # set list for Combobox
-        self.cbPort['values'] = port_number_list
+        
+        # Update UI directly (safe since we're always on main thread now)
+        if self.OSname == 'aqua':
+            self.updatePort()
+        else:
+            # Get current selection before updating list
+            currentSelection = self.strPort.get()
+            
+            # Update the combobox values
+            self.cbPort['values'] = port_number_list
+            
+            # Preserve user's selection if it's still valid, otherwise select first port
+            if currentSelection and currentSelection in port_number_list:
+                # Keep current selection - user's choice should be preserved
+                self.cbPort.set(currentSelection)
+                logger.debug(f"Preserved user's port selection: {currentSelection}")
+            elif port_number_list:
+                # Only change to first port if current selection is invalid or empty
+                self.cbPort.set(port_number_list[0])
+                logger.debug(f"Auto-selected first port: {port_number_list[0]}")
 
+    def checkPortsMainThread(self):
+        """Check ports in main thread using timer (safe for macOS)"""
+        if not self.keepChecking:
+            return
+            
+        try:
+            # Import here to ensure it's available
+            from SerialCommunication import Communication
+            
+            # Get current port list
+            currentPorts = Communication.Print_Used_Com()
+            
+            # Convert to port names only (remove '/dev/' prefix)
+            current_port_names = [p.split('/')[-1] for p in currentPorts]
+            
+            # Check if ports changed
+            if set(current_port_names) != set(self.lastPortList):
+                logger.info(f"Port list changed: {current_port_names}")
+                
+                # Detect added and removed ports
+                added_ports = set(current_port_names) - set(self.lastPortList)
+                removed_ports = set(self.lastPortList) - set(current_port_names)
+                
+                # Get current selection
+                currentSelection = self.strPort.get()
+                
+                # Update global portStrList
+                portStrList.clear()
+                portStrList.extend(current_port_names)
+                
+                # Handle port changes
+                if added_ports:
+                    # New port(s) added
+                    logger.info(f"New port(s) added: {added_ports}")
+                    
+                    # Get board version to determine preferred port
+                    boardVer = self.strBoardVersion.get()
+                    added_list = sorted(added_ports)
+                    
+                    # Determine if we should show popup based on board version and ports
+                    should_show_popup = False
+                    preferred_port = None
+                    
+                    if boardVer in BiBoard_version_list:
+                        # For BiBoard, ONLY show popup when wchusbserial is detected
+                        # This avoids duplicate popups when both usbmodem and wchusbserial appear at different times
+                        for port in added_list:
+                            if 'wchusbserial' in port.lower():
+                                preferred_port = port
+                                should_show_popup = True
+                                break
+                        
+                        if not should_show_popup:
+                            # Detected other ports (like usbmodem) but not wchusbserial
+                            # Just update the port list silently, don't popup
+                            logger.info(f"BiBoard: Detected non-preferred ports {added_list}, updating list silently")
+                            self.updatePortlist()
+                    else:
+                        # For NyBoard, prefer usbmodem, then usbserial-
+                        for port in added_list:
+                            if 'usbmodem' in port.lower():
+                                preferred_port = port
+                                should_show_popup = True
+                                break
+                        if not preferred_port:
+                            for port in added_list:
+                                if 'usbserial-' in port.lower():
+                                    preferred_port = port
+                                    should_show_popup = True
+                                    break
+                        # If still not found, use the first one
+                        if not preferred_port and added_list:
+                            preferred_port = added_list[0]
+                            should_show_popup = True
+                    
+                    # Only show popup and auto-select if we found the preferred port
+                    if should_show_popup and preferred_port:
+                        new_port = preferred_port
+                        
+                        # Only show message if this is not the first check
+                        # (to avoid false "new port" message when opening the interface)
+                        if not self.isFirstCheck:
+                            # Show info message for preferred new port
+                            messagebox.showinfo(txt('Info'), txt('New port prompt') + new_port)
+                            self.force_focus()  # Force the main interface to get focus
+                            
+                            # Update UI and auto-select new port
+                            if self.OSname == 'aqua':
+                                # For macOS, update port list and it will handle selection
+                                self.updatePort()
+                                # But we want to force select the preferred new port
+                                if new_port in current_port_names:
+                                    self.cbPort.set(new_port)
+                            else:
+                                # For Windows/Linux, directly update and select
+                                self.cbPort['values'] = current_port_names
+                                self.cbPort.set(new_port)
+                            
+                            logger.info(f"Auto-selected preferred new port: {new_port}")
+                        else:
+                            # First check, just update UI without popup
+                            logger.info(f"First check - detected ports without popup: {added_ports}")
+                            self.updatePortlist()
+                    
+                elif removed_ports:
+                    # Port(s) removed
+                    logger.info(f"Port(s) removed: {removed_ports}")
+                    
+                    # Check if current selection was removed
+                    if currentSelection in removed_ports:
+                        logger.info(f"Current port {currentSelection} was removed")
+                        
+                        # Update UI
+                        if self.OSname == 'aqua':
+                            self.updatePort()
+                        else:
+                            self.cbPort['values'] = current_port_names
+                            if len(current_port_names) > 0:
+                                # Select first available port
+                                self.cbPort.set(current_port_names[0])
+                                logger.info(f"Switched to first available port: {current_port_names[0]}")
+                            else:
+                                # No ports available, set to empty
+                                self.cbPort.set('')
+                                logger.info("No ports available, cleared selection")
+                    else:
+                        # Current selection still valid, just update list
+                        self.updatePortlist()
+                
+                # Update last port list
+                self.lastPortList = current_port_names.copy()
+                
+                # Clear first check flag after first detection
+                if self.isFirstCheck:
+                    self.isFirstCheck = False
+                    logger.debug("First check completed, future changes will show notifications")
+        except Exception as e:
+            logger.error(f"Error checking ports: {e}")
+        
+        # Schedule next check (every 500ms)
+        if self.keepChecking:
+            self.win.after(500, self.checkPortsMainThread)
+    
     def about(self):
         self.msgbox = messagebox.showinfo(txt('titleVersion'), txt('msgVersion'))
         self.force_focus()
@@ -342,33 +548,120 @@ class Uploader:
 
         self.cbSoftwareVersion.config(state=stt)
 
+    def updatePort(self):
+        if self.OSname == 'aqua':
+            list = copy.deepcopy(portStrList)
+            boardVer = self.strBoardVersion.get()
+            
+            # Get current selection before updating
+            currentSelection = self.strPort.get()
+            
+            if boardVer in NyBoard_version_list:
+                if len(list) > 0:
+                    itemSet = " "
+                    for item in list:
+                        if 'usbmodem' in item:  # prefer the USB modem device because it can restart the NyBoard
+                            itemSet = item
+                            break
+                        elif 'usbserial-' in item:  # prefer the "serial-" device
+                            itemSet = item
+                            break
+                            
+                    # Remove unwanted ports (need to use list() to avoid modification during iteration)
+                    items_to_remove = []
+                    for item in list:
+                        if 'wchusbserial' in item or 'cu.SLAB_USBtoUART' in item:
+                            items_to_remove.append(item)
+                    for item in items_to_remove:
+                        list.remove(item)
+                    
+                    # Update values first
+                    self.cbPort['values'] = list
+                    
+                    # Preserve user's selection if it's still valid
+                    if currentSelection and currentSelection in list:
+                        self.cbPort.set(currentSelection)
+                        logger.debug(f"Preserved user's port selection: {currentSelection}")
+                    elif itemSet != " " and itemSet in list:
+                        self.cbPort.set(itemSet)
+                    elif len(list) > 0:
+                        self.cbPort.set(list[0])
+            elif boardVer == "BiBoard_V1_0":
+                if len(list) > 0:
+                    itemSet = " "
+                    for item in list:
+                        if 'wchusbserial' in item:  # prefer the "wchusbserial" for BiBoard V1
+                            itemSet = item
+                            break
+                        elif 'serial-' in item:  # prefer the "serial-" device
+                            itemSet = item
+                            break
+                            
+                    # Remove unwanted ports (need to use list() to avoid modification during iteration)
+                    items_to_remove = []
+                    for item in list:
+                        if 'usbmodem' in item or 'cu.SLAB_USBtoUART' in item:
+                            items_to_remove.append(item)
+                    for item in items_to_remove:
+                        list.remove(item)
+                    
+                    # Update values first
+                    self.cbPort['values'] = list
+                    
+                    # Preserve user's selection if it's still valid
+                    if currentSelection and currentSelection in list:
+                        self.cbPort.set(currentSelection)
+                        logger.debug(f"Preserved user's port selection: {currentSelection}")
+                    elif itemSet != " " and itemSet in list:
+                        self.cbPort.set(itemSet)
+                    elif len(list) > 0:
+                        self.cbPort.set(list[0])
+            else:
+                # Update values first
+                self.cbPort['values'] = list
+                
+                # Preserve user's selection if it's still valid
+                if currentSelection and currentSelection in list:
+                    self.cbPort.set(currentSelection)
+                    logger.debug(f"Preserved user's port selection: {currentSelection}")
+                elif len(list) > 0:
+                    self.cbPort.set(list[0])
+
     def chooseBoardVersion(self, event):
         self.setActiveOption()
         self.updateMode()
+        self.updatePort()
 
     def chooseProduct(self, event):
         if self.strProduct.get() == 'Bittle X':
-            self.strBoardVersion.set(BiBoard_version_list[0])
+            self.strBoardVersion.set(BiBoard_version_list[1])
+            board_version_list = BiBoard_version_list
+        elif self.strProduct.get() == 'Nybble Q' or self.strProduct.get() == 'Bittle X+Arm':
+            self.cbBoardVersion.set(BiBoard_version_list[2])
             board_version_list = BiBoard_version_list
         else:
             board_version_list = NyBoard_version_list + BiBoard_version_list
+
+        if self.strProduct.get() == 'Bittle X+Arm':
+            tip(self.cbProduct, "Bittle X+Arm" + " (" + "Bittle + " + txt('Robotic Arm') + ")")
+        else:
+            tip(self.cbProduct, self.strProduct.get())
+
         self.cbBoardVersion['values'] = board_version_list
         self.updateMode()
         self.setActiveOption()
 
     def updateMode(self):
-        if self.strProduct.get() == 'Bittle':
+        if self.strProduct.get() == 'Bittle' or self.strProduct.get() == 'Nybble':
             if 'NyBoard' in self.strBoardVersion.get():
-                modeList = self.BittleNyBoardModes
+                if self.strProduct.get() == 'Bittle':
+                    modeList = self.BittleNyBoardModes
+                else:
+                    modeList = self.NybbleNyBoardModes
             else:
-                modeList = self.BittleBiBoardModes
-        elif self.strProduct.get() == 'Nybble':
-            if 'NyBoard' in self.strBoardVersion.get():
-                modeList = self.NybbleNyBoardModes
-            else:
-                modeList = self.NybbleBiBoardModes
-        if self.strProduct.get() == 'Bittle X':
-            modeList = self.BittleBiBoardModes
+                modeList = self.BiBoardModes
+        else:    # if self.strProduct.get() == 'Bittle X' or self.strProduct.get() == 'Bittle X+Arm':
+            modeList = self.BiBoardModes
 
         self.cbMode['values'] = modeList
 
@@ -443,8 +736,13 @@ class Uploader:
         bCount = False
         bResetMode = False
         retMsg = False
+        self.bIMUerror = False
         prompStr = ""
+        counterIMU = 0
         while True:
+            # Use update_idletasks() instead of update() to avoid event loop nesting
+            # This updates the display without processing events, which is safer
+            self.win.update_idletasks()
             time.sleep(0.01)
             if serObj.main_engine.in_waiting > 0:
                 x = str(serObj.main_engine.readline())
@@ -452,6 +750,7 @@ class Uploader:
                 logger.debug(f"new line:{x}")
                 if x != "":
                     print(prompStr)
+                    logger.info(prompStr)
                     questionMark = "Y/n"
                     if self.bFacReset and strBoardVersion in BiBoard_version_list:    # for BiBoard Factory reset
                         newBoardMark = "Set up the new board"
@@ -465,29 +764,6 @@ class Uploader:
 
                         if bResetMode:
                             if prompStr.find(questionMark) != -1:
-                                if progress > 0:
-                                    self.strStatus.set(promptList[progress-1]['result'])
-                                    self.statusBar.update()
-
-                                if prompStr.find("assurance") != -1:  # for BiBoard
-                                    serObj.Send_data(self.encode("n"))
-                                elif (prompStr.find("joint") != -1):
-                                    prompt = promptJointCalib
-                                    serObj.Send_data(self.encode("Y"))
-                                    self.strStatus.set(prompt['operating'])
-                                    self.statusBar.update()
-                                elif (prompStr.find("Calibrate") != -1):
-                                    prompt = promptIMU
-                                    serObj.Send_data(self.encode("Y"))
-                                    self.strStatus.set(prompt['operating'])
-                                    self.statusBar.update()
-                                progress += 1
-
-                            if prompStr.find("Ready!") != -1:
-                                break
-                    else:
-                        if prompStr.find(questionMark) != -1:
-                            if self.bModPara:    # for NyBoard and BiBoard upgrade firmware
                                 if progress > 0 and retMsg:
                                     self.strStatus.set(promptList[progress-1]['result'])
                                     self.statusBar.update()
@@ -508,7 +784,32 @@ class Uploader:
                                 else:
                                     serObj.Send_data(self.encode("n"))
                                 progress += 1
-                            else:    # for BiBoard update mode only
+                            if prompStr.find("Ready!") != -1:
+                                break
+                    else:
+                        if prompStr.find(questionMark) != -1:
+                            if self.bParaUpload and (strBoardVersion in NyBoard_version_list):  # for NyBoard upgrade firmware
+                                if progress > 0 and retMsg:
+                                    self.strStatus.set(promptList[progress-1]['result'])
+                                    self.statusBar.update()
+                                if prompStr.find("joint") != -1:
+                                    prompt = promptJointCalib
+                                elif prompStr.find("Instinct") != -1:
+                                    prompt = promptInstinct
+                                elif prompStr.find("Calibrate") != -1:
+                                    prompt = promptIMU
+                                elif prompStr.find("assurance") != -1:
+                                    serObj.Send_data(self.encode("n"))
+                                    continue
+                                retMsg = messagebox.askyesno(txt('Warning'), prompt['message'])
+                                if retMsg:
+                                    self.strStatus.set(prompt['operating'])
+                                    self.statusBar.update()
+                                    serObj.Send_data(self.encode("Y"))
+                                else:
+                                    serObj.Send_data(self.encode("n"))
+                                progress += 1
+                            else:    # for BiBoard upgrade firmware
                                 if prompStr.find("joint") != -1:
                                     prompt = promptJointCalib
                                     serObj.Send_data(self.encode("n"))
@@ -521,6 +822,18 @@ class Uploader:
                                 elif prompStr.find("assurance") != -1:
                                     serObj.Send_data(self.encode("n"))
                                     continue
+                        elif prompStr.find(questionMark) == -1 and self.bParaUpload:
+                            if prompStr[:3] == "IMU":
+                                if progress > 0 and retMsg:
+                                    self.strStatus.set(promptList[progress - 1]['result'])
+                                    self.statusBar.update()
+                                counterIMU += 1
+                                if counterIMU == 3:
+                                    self.bIMUerror = True
+                                    self.strStatus.set(txt('caliIMUerrorStatus'))
+                                    self.statusBar.update()
+                                    break
+
                         if prompStr.find("sent to mpu.setXAccelOffset") != -1 or prompStr.find("Ready!") != -1:
                             if strBoardVersion in NyBoard_version_list:
                                 if retMsg:
@@ -553,6 +866,10 @@ class Uploader:
         logger.info("close the serial port.")
         self.force_focus()
 
+        if self.bIMUerror and strBoardVersion in NyBoard_version_list:
+            messagebox.showwarning(txt('Warning'), message=txt('caliIMUerrorMessage'))
+            return
+
         if not self.bFacReset and strBoardVersion in NyBoard_version_list:
             messagebox.showinfo(title=None, message=txt('parameterFinish'))
 
@@ -570,169 +887,306 @@ class Uploader:
             f.writelines(lines)
             # f.close()
 
+
+    def showMessage(self,sta):
+        self.strStatus.set(sta)
+        self.statusBar.update()
+
+        if self.OSname == 'aqua':    # for macOS
+            # folder_path = "file:///Applications/Petoi Desktop App.app/Contents/Resources"
+            folder_path = "/Applications/Petoi Desktop App.app/Contents/Resources" + '\n'
+        else:    # for Windows or Linux
+            path = os.getcwd()
+            # folder_path = "file://" + path  # Replace with the actual folder path
+            folder_path = path + '\n'  # Replace with the actual folder path
+
+        print(folder_path)
+        messagebox.showinfo('Petoi Desktop App', txt('logLocation') + folder_path + txt('checkLogfile'))
+        # Open the folder in the default file browser
+        # webbrowser.open_new_tab(folder_path)
+
+
     def autoupload(self):
-        logger.info(f"lastSetting: {self.lastSetting}.")
-        strProd = self.strProduct.get()
-        strDefaultPath = self.strFileDir.get()
-        strSoftwareVersion = self.strSoftwareVersion.get()
-        strBoardVersion = self.strBoardVersion.get()
-        strMode = self.inv_txt[self.strMode.get()]
-        self.currentSetting = [strProd, strDefaultPath, strSoftwareVersion, strBoardVersion, strMode]
-        logger.info(f"currentSetting: {self.currentSetting}.")
+        # No need to pause thread anymore - using main-thread timer now
+        try:
+            with open("./logfile.log", "r+", encoding="ISO-8859-1") as logfile:
+                lines = logfile.readlines()
+            time.sleep(1)
+            # Read the first three lines
+            first_three_lines = lines[:3]
+            for line in lines:
+                line = line.strip()  # remove the line break from each line
+                logger.debug(f"{line}")
+                if (".ino.hex" in line) or (".ino.bin" in line):
+                    with open("./logfile.log", "w+", encoding="ISO-8859-1") as logfile:
+                        for line in first_three_lines:
+                            logfile.write(line)
+                    break
+            logger.info(f"lastSetting: {self.lastSetting}.")
+            strProd = self.strProduct.get()
+            strDefaultPath = self.strFileDir.get()
+            strSoftwareVersion = self.strSoftwareVersion.get()
+            strBoardVersion = self.strBoardVersion.get()
+            strMode = self.inv_txt[self.strMode.get()]
+            self.currentSetting = [strProd, strDefaultPath, strSoftwareVersion, strBoardVersion, strMode]
+            logger.info(f"currentSetting: {self.currentSetting}.")
 
-        if self.strFileDir.get() == '' or self.strFileDir.get() == ' ':
-            messagebox.showwarning(txt('Warning'), txt('msgFileDir'))
-            self.force_focus()  # force the main interface to get focus
-            return False
+            if self.strFileDir.get() == '' or self.strFileDir.get() == ' ':
+                messagebox.showwarning(txt('Warning'), txt('msgFileDir'))
+                self.force_focus()  # force the main interface to get focus
+                return False
 
-        # NyBoard_V1_X software version are all the same
-        if "NyBoard_V1" in strBoardVersion:
-            pathBoardVersion = "NyBoard_V1"
-        else:
-            pathBoardVersion = strBoardVersion
-
-        if strProd == "Bittle X":
-            strProdPath = "Bittle"
-        else:
-            strProdPath = strProd
-        path = self.strFileDir.get() + '/' + strSoftwareVersion + '/' + strProdPath + '/' + pathBoardVersion + '/'
-
-        if self.OSname == 'x11' or self.OSname == 'aqua':
-            port = '/dev/' + self.strPort.get()
-        else:
-            port = self.strPort.get()
-        print(self.strPort.get())
-        if port == ' ' or port == '':
-            messagebox.showwarning(txt('Warning'), txt('msgPort'))
-            self.force_focus()
-            return False
-
-        if strBoardVersion in NyBoard_version_list:
-            if self.bFacReset:
-                fnWriteI = path + 'WriteInstinctAutoInit.ino.hex'
-                fnOpenCat = path + 'OpenCatStandard.ino.hex'
-                self.currentSetting[4] = 'Standard'
+            # NyBoard_V1_X software version are all the same
+            if "NyBoard_V1" in strBoardVersion:
+                pathBoardVersion = "NyBoard_V1"
             else:
-                fnWriteI = path + 'WriteInstinct.ino.hex'
-                fnOpenCat = path + 'OpenCat' + strMode + '.ino.hex'
-            filename = [fnWriteI, fnOpenCat]
-            print(filename)
-            uploadStage = ['Parameters', 'Main function']
-            for s in range(len(uploadStage)):
-                # if s == 0 and self.bParaUploaded and self.currentSetting[:4] == self.lastSetting[:4]:
-                if s == 0 and (not self.bParaUpload):
-                    continue
-                self.strStatus.set(txt('Uploading') + txt(uploadStage[s]) + '...' )
-                self.win.update()
-                # self.inProgress = True
-                # status = txt('Uploading') + txt(uploadStage[s]) + '.'
-                # t = threading.Thread(target=self.progressiveDots, args=(status,))
-                # t.start()
-                if self.OSname == 'win32':
-                    avrdudePath = resourcePath + 'avrdudeWin/'
-                elif self.OSname == 'x11':     # Linux
-                    avrdudePath = '/usr/bin/'
-                    path = pathlib.Path(avrdudePath + 'avrdude')
-                    if not path.exists():
-                        messagebox.showwarning(txt('Warning'), txt('msgNoneAvrdude'))
-                        self.force_focus()  # force the main interface to get focus
-                        return False
-                    # avrdudeconfPath = '/etc/avrdude/'      # Fedora / CentOS
-                    avrdudeconfPath = '/etc/'            # Debian / Ubuntu
+                pathBoardVersion = strBoardVersion
+
+            if strProd == "Bittle X":
+                strProdPath = "Bittle"
+            elif strProd == "Bittle X+Arm":
+                strProdPath = "BittleX+Arm"
+            elif strProd == "Nybble Q":
+                strProdPath = "Nybble"
+            else:
+                strProdPath = strProd
+            path = self.strFileDir.get() + '/' + strSoftwareVersion + '/' + strProdPath + '/' + pathBoardVersion + '/'
+
+            if self.OSname == 'x11' or self.OSname == 'aqua':
+                port = '/dev/' + self.strPort.get()
+            else:
+                port = self.strPort.get()
+            logger.info(f"{self.strPort.get()}")
+            if port == ' ' or port == '':
+                messagebox.showwarning(txt('Warning'), txt('msgPort'))
+                self.force_focus()
+                return False
+
+            if strBoardVersion in NyBoard_version_list:
+                if self.bFacReset:
+                    fnWriteI = path + 'WriteInstinctAutoInit.ino.hex'
+                    fnOpenCat = path + 'OpenCatStandard.ino.hex'
+                    self.currentSetting[4] = 'Standard'
                 else:
-                    avrdudePath = resourcePath + 'avrdudeMac/'
-                print()
-                try:
-                    if self.OSname == 'x11':     # Linuxself.OSname == 'x11':     # Linux
-                        check_call(avrdudePath + 'avrdude -C' + avrdudeconfPath + 'avrdude.conf -v -V -patmega328p -carduino -P%s -b115200 -D -Uflash:w:%s:i' % \
-                                (port, filename[s]), shell=self.shellOption)
+                    fnWriteI = path + 'WriteInstinct.ino.hex'
+                    fnOpenCat = path + 'OpenCat' + strMode + '.ino.hex'
+                filename = [fnWriteI, fnOpenCat]
+                logger.info(f"{filename}")
+                uploadStage = ['Parameters', 'Main function']
+                for s in range(len(uploadStage)):
+                    # if s == 0 and self.bParaUploaded and self.currentSetting[:4] == self.lastSetting[:4]:
+                    # for NyBoard uplod mode only
+                    if s == 0 and (not self.bParaUpload):
+                        continue               # no need upload configuration firmware
+                    # if calibrate IMU failed
+                    elif s == 1 and self.bIMUerror:
+                        continue               # no need upload main function firmware
+
+                    self.strStatus.set(txt('Uploading') + txt(uploadStage[s]) + '...' )
+                    self.statusBar.update()
+                    # self.inProgress = True
+                    # status = txt('Uploading') + txt(uploadStage[s]) + '.'
+                    # t = threading.Thread(target=self.progressiveDots, args=(status,))
+                    # t.start()
+                    if self.OSname == 'win32':
+                        avrdudePath = resourcePath + 'avrdudeWin/'
+                    elif self.OSname == 'x11':     # Linux
+                        avrdudePath = '/usr/bin/'
+                        path = pathlib.Path(avrdudePath + 'avrdude')
+                        if not path.exists():
+                            messagebox.showwarning(txt('Warning'), txt('msgNoneAvrdude'))
+                            self.force_focus()  # force the main interface to get focus
+                            return False
+                        # avrdudeconfPath = '/etc/avrdude/'      # Fedora / CentOS
+                        avrdudeconfPath = '/etc/'            # Debian / Ubuntu
                     else:
-                        check_call(avrdudePath+'avrdude -C'+avrdudePath+'avrdude.conf -v -V -patmega328p -carduino -P%s -b115200 -D -Uflash:w:%s:i' % \
-                                (port, filename[s]), shell=self.shellOption)
-                # self.inProgress = False
-                except:
-                    status = txt(uploadStage[s]) + txt('failed to upload')
+                        avrdudePath = resourcePath + 'avrdudeMac/'
+
+                    try:
+                        # for NyBoard factory reset or upgrade firmware
+                        if s == 0 and self.bIMUerror:    # alread upload configuration firmware,but calibrate IMU failed
+                            pass                         # no need upload configuration firmware again
+                        else:
+                            if self.OSname == 'x11':     # Linuxself.OSname == 'x11':     # Linux
+                                # check_call(avrdudePath + 'avrdude -C' + avrdudeconfPath + 'avrdude.conf -v -V -patmega328p -carduino -P%s -b115200 -D -Uflash:w:%s:i' % \
+                                #         (port, filename[s]), shell=self.shellOption)
+                                cmd = avrdudePath + 'avrdude -C' + avrdudeconfPath + 'avrdude.conf -v -V -patmega328p -carduino -P' + port + ' -b115200 -D -Uflash:w:' + \
+                                    filename[s] + ':i'
+                            else:
+                                # check_call(avrdudePath + 'avrdude -C' + avrdudePath + 'avrdude.conf -v -V -patmega328p -carduino -P%s -b115200 -D -Uflash:w:%s:i > ./avrdude_log.txt 2> ./avrdude_errors.txt' % \
+                                #         (port, filename[s]), shell=self.shellOption)
+                                cmd = avrdudePath + 'avrdude -C' + avrdudePath + 'avrdude.conf -v -V -patmega328p -carduino -P' + port + ' -b115200 -D -Uflash:w:' + \
+                                    filename[s] + ':i'
+
+                            # Run the program and capture output
+                            # Allow GUI to update display before blocking operation
+                            self.win.update_idletasks()
+                            process = subprocess.Popen(cmd,shell = self.shellOption, stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+                            output, error = process.communicate()  # Wait for the program to finish
+                            # Allow GUI to update display after operation
+                            self.win.update_idletasks()
+                            # printH("error:", error)
+                            # printH("output:", output)
+
+                            # Check for errors (optional)
+                            if error:
+                                logger.info(f"Error running program: {error}")
+                            else:
+                                # Write captured output to a file
+                                with open("./logfile.log", "a+", encoding="ISO-8859-1") as logfile:
+                                    logfile.write(output.decode())  # Decode bytes to string
+                                time.sleep(1)
+
+                                with open("./logfile.log", "r+", encoding="ISO-8859-1") as logfile:
+                                    lines = logfile.readlines()
+                                time.sleep(1)
+
+                                for line in lines:
+                                    line = line.strip()  # remove the line break from each line
+                                    logger.debug(f"{line}")
+                                    if ("programmer is not responding" in line) or \
+                                        ("can\'t open device" in line) or \
+                                        ("attempt" in line) or \
+                                        ("error" in line) or ("Errno" in line):
+                                        status = txt(uploadStage[s]) + txt('failed to upload')
+                                        # self.strStatus.set(status)
+                                        # self.statusBar.update()
+                                        # messagebox.showinfo('Petoi Desktop App',txt('checkLogfile'))
+                                        self.showMessage(status)
+                                        return False
+
+                    # self.inProgress = False
+                    except:
+                        status = txt(uploadStage[s]) + txt('failed to upload')
+                        self.strStatus.set(status)
+                        self.statusBar.update()
+                        messagebox.showwarning(txt('Warning'), txt('Replug prompt'))
+                        return False
+                    else:
+                        status = txt(uploadStage[s]) + txt('is successully uploaded')
+                    
                     self.strStatus.set(status)
                     self.statusBar.update()
-                    messagebox.showwarning(txt('Warning'), txt('Replug prompt'))
-                    return False
-                else:
-                    status = txt(uploadStage[s]) + txt('is successully uploaded')
-                
-                self.strStatus.set(status)
-                self.statusBar.update()
 
-                if s == 0:
-                    self.WriteInstinctPrompts(port)
-                else:
-                    pass
-        elif strBoardVersion in BiBoard_version_list:
-            if strMode == "Standard":
-                modeName = "Standard_Voice"
-                # fnBootLoader = path + 'OpenCatEsp32Standard_Voice.ino.bootloader.bin'
+                    if s == 0:
+                        self.WriteInstinctPrompts(port)
+                    else:
+                        pass
+            elif strBoardVersion in BiBoard_version_list:
+                modeName = "Standard"
+                # fnBootLoader = path + 'OpenCatEsp32Standard.ino.bootloader.bin'
                 fnBootLoader = path + 'OpenCatEsp32' + modeName + '.ino.bootloader.bin'
-                # fnPartitions = path + 'OpenCatEsp32Standard_Voice.ino.partitions.bin'
+                # fnPartitions = path + 'OpenCatEsp32Standard.ino.partitions.bin'
                 fnPartitions = path + 'OpenCatEsp32' + modeName + '.ino.partitions.bin'
-                # fnMainFunc = path + 'OpenCatEsp32Standard_Voice.ino.bin '
+                # fnMainFunc = path + 'OpenCatEsp32Standard.ino.bin '
                 fnMainFunc = path + 'OpenCatEsp32' + modeName + '.ino.bin '
-            else:
-                # fnBootLoader = path + 'OpenCatEsp32strMode.ino.bootloader.bin'
-                fnBootLoader = path + 'OpenCatEsp32' + strMode + '.ino.bootloader.bin'
-                # fnPartitions = path + 'OpenCatEsp32strMode.ino.partitions.bin'
-                fnPartitions = path + 'OpenCatEsp32' + strMode + '.ino.partitions.bin'
-                # fnMainFunc = path + 'OpenCatEsp32strMode.ino.bin '
-                fnMainFunc = path + 'OpenCatEsp32' + strMode + '.ino.bin '
-            fnBootApp = path + 'boot_app0.bin'
+                fnBootApp = path + 'boot_app0.bin'
 
-            filename = [fnBootLoader, fnPartitions, fnBootApp, fnMainFunc]
-            print(filename)
-            self.strStatus.set(txt('Uploading') + txt('Main function') + ', ' + txt('Time consuming') + '...' )
-            self.win.update()
-            if self.OSname == 'win32':   # Windows
-                esptoolPath = resourcePath + 'esptoolWin/'
-            elif self.OSname == 'x11':  # Linux
-                esptoolPath = '/usr/bin/'
-                path = pathlib.Path(esptoolPath + 'esptool')
-                if not path.exists():
-                    messagebox.showwarning(txt('Warning'), txt('msgNoneEsptool'))
-                    self.force_focus()  # force the main interface to get focus
+                filename = [fnBootLoader, fnPartitions, fnBootApp, fnMainFunc]
+                logger.info(f"{filename}")
+                self.strStatus.set(txt('Uploading') + txt('Main function') + ', ' + txt('Time consuming') + '...' )
+                self.statusBar.update()
+                if self.OSname == 'win32':   # Windows
+                    esptoolPath = resourcePath + 'esptoolWin/'
+                elif self.OSname == 'x11':  # Linux
+                    esptoolPath = '/usr/bin/'
+                    path = pathlib.Path(esptoolPath + 'esptool')
+                    if not path.exists():
+                        messagebox.showwarning(txt('Warning'), txt('msgNoneEsptool'))
+                        self.force_focus()  # force the main interface to get focus
+                        return False
+                else:    # Mac
+                    esptoolPath = resourcePath + 'esptoolMac/'
+                # print()
+                try:
+                    # check_call(esptoolPath + 'esptool --chip esp32 --port %s --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 80m --flash_size 16MB 0x1000 %s 0x8000 %s 0xe000 %s 0x10000 %s' % \
+                    # (port, filename[0], filename[1], filename[2], filename[3]), shell=self.shellOption)
+                    # subprocess.check_call(esptoolPath + 'esptool --chip esp32 --port %s --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 80m --flash_size 4MB 0x1000 %s 0x8000 %s 0xe000 %s 0x10000 %s' % \
+                    #     (port, filename[0], filename[1], filename[2], filename[3]), shell=self.shellOption)
+                    cmd = esptoolPath + 'esptool --chip esp32 --port ' + port + ' --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 80m --flash_size 4MB 0x1000 ' \
+                        + filename[0] + \
+                        ' 0x8000 ' + filename[1] + \
+                        ' 0xe000 ' + filename[2] + \
+                        ' 0x10000 ' + filename[3]
+                    # Run the program and capture output
+                    # Allow GUI to update display before blocking operation
+                    self.win.update_idletasks()
+                    process = subprocess.Popen(cmd, shell=self.shellOption, stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT)
+                    output, error = process.communicate()  # Wait for the program to finish
+                    # Allow GUI to update display after operation
+                    self.win.update_idletasks()
+                    # printH("error:", error)
+                    # printH("output:", output)
+
+                    # Check for errors (optional)
+                    if error:
+                        logger.info(f"Error running program: {error}")
+                    else:
+                        # Write captured output to a file
+                        with open("./logfile.log", "a+", encoding="ISO-8859-1") as logfile:
+                            logfile.write(output.decode())  # Decode bytes to string
+                        time.sleep(1)
+
+                        with open("./logfile.log", "r+", encoding="ISO-8859-1") as logfile:
+                            lines = logfile.readlines()
+                        time.sleep(1)
+
+                        for line in lines:
+                            line = line.strip()  # remove the line break from each line
+                            logger.debug(f"{line}")
+                            if ("Traceback" in line) or \
+                                ("Failed to connect to ESP32" in line) or \
+                                ("error" in line) or ("Errno" in line):
+                                status = txt('Main function') + txt('failed to upload')
+                                # self.strStatus.set(status)
+                                # self.statusBar.update()
+                                # messagebox.showinfo('Petoi Desktop App', txt('checkLogfile'))
+                                self.showMessage(status)
+                                return False
+
+                except Exception as e:
+                    printH("Excep:", e)
+                    logger.info(f"Excep: {e}")
+                    status = txt('Main function') + txt('failed to upload')
+                    # self.strStatus.set(status)
+                    # self.statusBar.update()
+                    self.showMessage(status)
                     return False
-            else:    # Mac
-                esptoolPath = resourcePath + 'esptoolMac/'
-            print()
-            try:
-                check_call(esptoolPath + 'esptool --chip esp32 --port %s --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 80m --flash_size 16MB 0x1000 %s 0x8000 %s 0xe000 %s 0x10000 %s' % \
-                (port, filename[0], filename[1], filename[2], filename[3]), shell=self.shellOption)
-            except:
-                status = txt('Main function') + txt('failed to upload')
+                else:
+                    status = txt('Main function') + txt('is successully uploaded')
+                    
                 self.strStatus.set(status)
                 self.statusBar.update()
-                return False
-            else:
-                status = txt('Main function') + txt('is successully uploaded')
-                
-            self.strStatus.set(status)
-            self.statusBar.update()
-            self.WriteInstinctPrompts(port)
+                self.WriteInstinctPrompts(port)
 
-        self.lastSetting = self.currentSetting
-        if self.bFacReset:
-            self.strMode.set(txt('Standard'))
-        self.saveConfigToFile(defaultConfPath)
-            
-        print('Finish!')
-        messagebox.showinfo(title=None, message=txt('msgFinish'))
-        self.force_focus()  # force the main interface to get focus
-        return True
+            self.lastSetting = self.currentSetting
+            if self.bFacReset:
+                self.strMode.set(txt('Standard'))
+            self.saveConfigToFile(defaultConfPath)
+                
+            # for there is no calibrate IMU error
+            if not self.bIMUerror:
+                print('Finish!')
+                messagebox.showinfo(title=None, message=txt('msgFinish'))
+            self.force_focus()  # force the main interface to get focus
+            return True
+        except Exception as e:
+            logger.error(f"Error in autoupload: {e}")
+            return False
         
     def force_focus(self):
         self.win.after(1, lambda: self.win.focus_force())
         
     def on_closing(self):
         if messagebox.askokcancel(txt('Quit'), txt('Do you want to quit?')):
+            # Stop main-thread timer
+            self.keepChecking = False
+            
             self.saveConfigToFile(defaultConfPath)
             logger.info(f"{self.configuration}")
             self.win.destroy()
 
 if __name__ == '__main__':
+    model = 'Bittle'
     Uploader = Uploader(model, language)
