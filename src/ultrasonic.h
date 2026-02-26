@@ -22,15 +22,15 @@ void readRGBultrasonic() {
     ultraTimer = millis();
     ultraInterval = 0;
     randomInterval = 1000;
-    distance = ultrasonic.GetUltrasonicDistance();
+    distance = ultrasonic.GetUltrasonicDistanceSilent();
     if (distance > 120) {
       return;
     }
 
-<<<<<<< HEAD
     return;
+
     /*
-=======
+
     //Add up multiple distance readings to reduce sensor noise
     static unsigned int totalDistances = 0;
     static byte readings = 0;
@@ -45,7 +45,6 @@ void readRGBultrasonic() {
     totalDistances = distance;
     readings = 1;
 
->>>>>>> c19ea48682180ccbc1b55f8e303aa4909a7ba453
     if (distance > 90) {
       if (!manualEyeColorQ)
         ultrasonic.SetRgbEffect(E_RGB_ALL, RGB_WHITE, E_EFFECT_BREATHING);

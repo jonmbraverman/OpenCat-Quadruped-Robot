@@ -29,6 +29,24 @@ float RgbUltrasonic::GetUltrasonicDistance(void)
     return FrontDistance;
 }
 
+float RgbUltrasonic::GetUltrasonicDistanceSilent(void)
+{
+  float distance;
+  unsigned long Time_Echo_us = 0;
+  pinMode(SignalPin, OUTPUT);
+  digitalWrite(SignalPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(SignalPin, HIGH);
+  delayMicroseconds(20);
+  digitalWrite(SignalPin, LOW);
+  pinMode(SignalPin, INPUT);
+  Time_Echo_us = pulseIn(SignalPin, HIGH);
+  if ((Time_Echo_us < 60000) && (Time_Echo_us > 1)) {
+      FrontDistance = Time_Echo_us / 58.00;
+  }
+    return FrontDistance;
+}
+
 void RgbUltrasonic::SetRgbColor(E_RGB_INDEX index, long Color)
 {
     if (index == E_RGB_ALL) {

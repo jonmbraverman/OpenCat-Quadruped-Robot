@@ -48,6 +48,7 @@ class RgbUltrasonic
     float FrontDistance;
     RgbUltrasonic(byte signal_pin, byte rgb_pin);
     float GetUltrasonicDistance(void);
+    float GetUltrasonicDistanceSilent(void);
     void SetRgbColor(E_RGB_INDEX index, long Color);
     void SetRgbEffect(E_RGB_INDEX index, long Color, uint8_t effect);
 };
