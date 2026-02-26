@@ -22,24 +22,30 @@ void read_serial() {
                                                                     //'~' ASCII code = 126; may introduce bug when the angle is 126 so only use angles <= 125
     long lastSerialTime = millis();
     int serialTimout = (token == T_SKILL_DATA || lowerToken == T_BEEP) ? SERIAL_TIMEOUT_LONG : SERIAL_TIMEOUT;
-    do {
-      if (Serial.available()) {
+    do 
+    {
+      if (Serial.available()) 
+      {
         // long current = millis();
         // PTH("SR\t", current - lastSerialTime);
-        do {
-          if ((token == T_SKILL || lowerToken == T_INDEXED_SIMULTANEOUS_ASC || lowerToken == T_INDEXED_SEQUENTIAL_ASC) && cmdLen >= spaceAfterStoringData
-              || cmdLen >= BUFF_LEN) {
-            PTLF("OVF");
-            delay(500);
-            // beep(5, 100, 50, 5);
-            do { Serial.read(); } while (Serial.available());
-            PTL(token);
-            token = T_SKILL;
-            strcpy(newCmd, "up");
-            // cmdLen = 2;  //not necessary
-            return;
-          }
-          newCmd[cmdLen++] = Serial.read();
+        do 
+        {
+            if ((token == T_SKILL || lowerToken == T_INDEXED_SIMULTANEOUS_ASC || lowerToken == T_INDEXED_SEQUENTIAL_ASC) && cmdLen >= spaceAfterStoringData
+                || cmdLen >= BUFF_LEN) 
+            {
+                PTLF("OVF");
+                delay(500);
+                // beep(5, 100, 50, 5);
+                do { Serial.read(); } while (Serial.available());
+                PTL(token);
+                token = T_SKILL;
+                strcpy(newCmd, "up");
+                // cmdLen = 2;  //not necessary
+                return;
+            }
+
+            newCmd[cmdLen++] = Serial.read();
+
         } while (Serial.available());
         lastSerialTime = millis();
       }

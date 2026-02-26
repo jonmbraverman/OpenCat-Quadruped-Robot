@@ -426,6 +426,13 @@ void reaction() {
                 PTL(readUltrasonic((int8_t)newCmd[1], (int8_t)newCmd[2]));
                 break;
               }
+#else
+            case EXTENSION_ULTRASONIC:
+              {
+                PT("DIS=");
+                PTL(ultrasonic.FrontDistance);             
+                break;
+              }              
 #endif
           }
           break;
